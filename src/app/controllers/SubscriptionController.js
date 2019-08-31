@@ -1,6 +1,8 @@
 import { Op } from 'sequelize';
 import Subscription from '../models/Subscription';
 import Meetup from '../models/Meetup';
+import User from '../models/User';
+import Mail from '../../lib/Mail';
 
 class SubscriptionController {
   async index(req, res) {
@@ -19,11 +21,11 @@ class SubscriptionController {
   }
 
   async store(req, res) {
-    const user_id = req.userId;
-    const meetup = await Meetup.findByPk(req.params.id);
+    const user = await User.findByPk(req.userId);
+    const meetup = await Meetup.findByPk(req.params.id, { include: [User] });
 
     // Logged user organizes meetup
-    if (meetup.user_id === user_id) {
+    if (meetup.user_id === user.id) {
       return res
         .status(400)
         .json({ error: 'You cant subscribe to your meetup' });
@@ -36,7 +38,7 @@ class SubscriptionController {
 
     const checkDate = await Subscription.findOne({
       where: {
-        user_id,
+        user_id: user.id,
       },
       include: [
         {
@@ -57,9 +59,18 @@ class SubscriptionController {
 
     const subscribe = await Subscription.create({
       meetup_id: meetup.id,
-      user_id,
+      user_id: user.id,
     });
-
+    await Mail.sendMail({
+      to: `${meetup.User.name} <${meetup.User.email}>`,
+      template: 'subscription',
+      context: {
+        user,
+        meetup,
+      },
+      subject: `Nova inscrição | ${meetup.title}`,
+      text: `Dados do inscrito: ${user.name} - ${user.email}`,
+    });
     return res.json(subscribe);
   }
 }
