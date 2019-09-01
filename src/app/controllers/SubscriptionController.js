@@ -2,7 +2,8 @@ import { Op } from 'sequelize';
 import Subscription from '../models/Subscription';
 import Meetup from '../models/Meetup';
 import User from '../models/User';
-import Mail from '../../lib/Mail';
+import Queue from '../../lib/Queue';
+import SubscriptionMail from '../jobs/SubscriptionMail';
 
 class SubscriptionController {
   async index(req, res) {
@@ -21,8 +22,13 @@ class SubscriptionController {
   }
 
   async store(req, res) {
-    const user = await User.findByPk(req.userId);
-    const meetup = await Meetup.findByPk(req.params.id, { include: [User] });
+    const user = await User.findByPk(req.userId, {
+      attributes: ['id', 'name', 'email'],
+    });
+    const meetup = await Meetup.findByPk(req.params.id, {
+      attributes: ['id', 'user_id', 'title', 'date', 'past'],
+      include: [{ model: User, attributes: ['name', 'email'] }],
+    });
 
     // Logged user organizes meetup
     if (meetup.user_id === user.id) {
@@ -61,15 +67,9 @@ class SubscriptionController {
       meetup_id: meetup.id,
       user_id: user.id,
     });
-    await Mail.sendMail({
-      to: `${meetup.User.name} <${meetup.User.email}>`,
-      template: 'subscription',
-      context: {
-        user,
-        meetup,
-      },
-      subject: `Nova inscrição | ${meetup.title}`,
-      text: `Dados do inscrito: ${user.name} - ${user.email}`,
+    await Queue.add(SubscriptionMail.key, {
+      meetup,
+      user,
     });
     return res.json(subscribe);
   }
